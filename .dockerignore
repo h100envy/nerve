@@ -1,0 +1,11 @@
+.env
+.venv
+.git
+.pytest_cache
+.ruff_cache
+.mypy_cache
+data/*.db
+data/*.db-*
+data/*.jsonl
+tests
+docs

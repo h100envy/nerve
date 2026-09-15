@@ -1,0 +1,13 @@
+services:
+  nerve:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - ../.env
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
