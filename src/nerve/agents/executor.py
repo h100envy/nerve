@@ -36,4 +36,5 @@ class ExecutorNode(NerveNode):
             return impulse.advance(NodeType.EXECUTOR, Verdict.ALERT, "send uncertain; reconcile by nonce")
         impulse.tx_hash, impulse.nonce = tx_hash, nonce
         self.store.update_intent(client_id, "filled", tx_hash=tx_hash)
+        self.store.record_position(impulse)
         return impulse.advance(NodeType.EXECUTOR, Verdict.FILL, tx_hash)

@@ -35,6 +35,11 @@ class NerveStore:
                 status TEXT NOT NULL, nonce INTEGER, tx_hash TEXT,
                 payload TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS positions (
+                token TEXT PRIMARY KEY, pool TEXT NOT NULL, size_usd TEXT NOT NULL,
+                entry_price TEXT NOT NULL, tx_hash TEXT NOT NULL, opened_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open'
+            );
             CREATE INDEX IF NOT EXISTS idx_impulses_created ON impulses(created_at);
             CREATE INDEX IF NOT EXISTS idx_transitions_impulse ON transitions(impulse_id);
             """
@@ -101,6 +106,25 @@ class NerveStore:
     def unknown_intents(self) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM intents WHERE status IN ('prepared','unknown','submitted')").fetchall()
         return [dict(row) for row in rows]
+
+    def record_position(self, impulse: Impulse) -> None:
+        self.conn.execute(
+            """INSERT INTO positions(token,pool,size_usd,entry_price,tx_hash,opened_at,status)
+               VALUES(?,?,?,?,?,?,?) ON CONFLICT(token) DO UPDATE SET
+               size_usd=excluded.size_usd, entry_price=excluded.entry_price,
+               tx_hash=excluded.tx_hash, status='open'""",
+            (impulse.token, impulse.pool, str(impulse.size_usd), str(impulse.entry_price),
+             impulse.tx_hash, datetime.now(UTC).isoformat(), "open"),
+        )
+        self.conn.commit()
+
+    def held_tokens(self) -> set[str]:
+        rows = self.conn.execute("SELECT token FROM positions WHERE status='open'").fetchall()
+        return {str(row["token"]) for row in rows}
+
+    def open_position_count(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS n FROM positions WHERE status='open'").fetchone()
+        return int(row["n"])
 
     def funnel(self, hours: int = 24) -> dict[str, Any]:
         cutoff = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()

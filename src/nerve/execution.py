@@ -8,6 +8,7 @@ from web3 import Web3
 from web3.exceptions import TimeExhausted
 
 from .models import Impulse
+from .rpc import RetryingHTTPProvider
 
 
 class ExecutionError(RuntimeError):
@@ -57,7 +58,9 @@ ERC20_ABI: list[dict[str, Any]] = [{
     "name": "allowance", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function",
     "inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}],
 }, {"name": "approve", "outputs": [{"type": "bool"}], "stateMutability": "nonpayable", "type": "function",
-    "inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}]}]
+    "inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}]},
+    {"name": "balanceOf", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function",
+     "inputs": [{"name": "account", "type": "address"}]}]
 
 
 class EvmExecution:
@@ -74,7 +77,7 @@ class EvmExecution:
         from eth_account import Account
 
         self.config = config
-        self.w3 = Web3(Web3.HTTPProvider(config.rpc_url, request_kwargs={"timeout": 10}))
+        self.w3 = Web3(RetryingHTTPProvider(config.rpc_url, request_kwargs={"timeout": 10}))
         if int(self.w3.eth.chain_id) != config.chain_id:
             raise ExecutionError(f"wrong chain: got {self.w3.eth.chain_id}, expected {config.chain_id}")
         self.account = Account.from_key(config.private_key)
@@ -89,6 +92,15 @@ class EvmExecution:
         signed = Account.sign_transaction(tx, self.config.private_key)
         # Never retry this call: a provider timeout does not prove the tx was absent.
         return self.w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+
+    def wallet_snapshot(self) -> tuple[float, float, float]:
+        """Return native ETH, WETH and gas price without mutating chain state."""
+        address = Web3.to_checksum_address(self.config.wallet_address)
+        weth = self.w3.eth.contract(address=Web3.to_checksum_address(self.config.weth_address), abi=ERC20_ABI)
+        native = float(self.w3.from_wei(self.w3.eth.get_balance(address), "ether"))
+        wrapped = float(self.w3.from_wei(weth.functions.balanceOf(address).call(), "ether"))
+        gas = float(self.w3.from_wei(self.w3.eth.gas_price, "gwei"))
+        return native, wrapped, gas
 
     def execute(self, impulse: Impulse) -> tuple[str, int | None]:
         try:
@@ -114,7 +126,7 @@ class EvmExecution:
         weth = self.w3.eth.contract(address=Web3.to_checksum_address(self.config.weth_address), abi=ERC20_ABI)
         allowance = int(weth.functions.allowance(recipient, self.router.address).call())
         if allowance < amount_in:
-            approval = weth.functions.approve(self.router.address, 2**256 - 1).build_transaction({  # type: ignore[arg-type]
+            approval = weth.functions.approve(self.router.address, amount_in).build_transaction({  # type: ignore[arg-type]
                 "from": recipient, "nonce": nonce, "chainId": self.config.chain_id,
                 "gas": 90_000, "maxFeePerGas": gas_price,
                 "maxPriorityFeePerGas": min(gas_price, self.w3.to_wei(0.01, "gwei")),

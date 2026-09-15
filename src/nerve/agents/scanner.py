@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from hashlib import sha256
 
 from ..models import Impulse, NodeType, Verdict
 from ..protocol import NerveNode
@@ -22,6 +23,9 @@ class ScannerNode(NerveNode):
     def process(self, impulse: Impulse) -> Impulse:
         if not impulse.token or not impulse.pool:
             return impulse.advance(NodeType.SCANNER, Verdict.REJECT, "token and pool are required")
+        # A pool is the durable identity. Re-reading the same recent log after
+        # a restart must not create a second execution intent.
+        impulse.id = sha256(f"{impulse.chain}:{impulse.pool}".encode()).hexdigest()[:12]
         impulse.score = nerve_score(impulse)
         if not impulse.buy_route or not impulse.sell_route:
             return impulse.advance(NodeType.SCANNER, Verdict.REJECT, "missing buy or sell route")

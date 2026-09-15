@@ -34,7 +34,9 @@ class NerveDesk:
                 source = RobinhoodChainPoolSource(
                     rpc_url=config.rpc_url, token_allowlist=config.token_allowlist,
                     weth=config.weth_address, factory=config.factory_address, fees=config.pool_fees,
-                    weth_usd=config.weth_usd,
+                    quoter=config.quoter_address, weth_usd=config.weth_usd,
+                    allow_any_token=config.allow_any_token, scan_window_blocks=config.scan_window_blocks,
+                    enrichment_path=config.enrichment_path,
                 )
             else:
                 raise ValueError("provide a PoolSource adapter for Base or Solana")
@@ -62,6 +64,19 @@ class NerveDesk:
         self.spine = Spine(self.nodes, self.store, self.context)
 
     def context(self) -> PortfolioContext:
+        if self.config.execution_mode is ExecutionMode.LIVE:
+            native, wrapped, gas = self.executor.adapter.wallet_snapshot()  # type: ignore[attr-defined]
+            equity = Decimal(str(wrapped)) * self.config.weth_usd
+            if equity <= 0:
+                raise RuntimeError("live wallet has no WETH equity; refusing to size a trade")
+            return PortfolioContext(
+                equity_usd=equity, daily_pnl_pct=Decimal("0"), gas_gwei=Decimal(str(gas)),
+                held_tokens=self.store.held_tokens(), open_positions=self.store.open_position_count(),
+                native_balance=Decimal(str(native)), kill_switch_active=self.config.kill_switch_file.exists(),
+                daily_loss_limit_pct=self.config.daily_loss_limit_pct, max_gas_gwei=self.config.max_gas_gwei,
+                min_liquidity_usd=self.config.min_liquidity_usd, max_slippage_bps=self.config.max_slippage_bps,
+                max_positions=self.config.max_positions, min_score=self.config.min_score,
+            )
         return PortfolioContext(
             equity_usd=Decimal("100000"), daily_pnl_pct=Decimal("0"), gas_gwei=Decimal("0"),
             open_positions=0, native_balance=Decimal("1"), kill_switch_active=self.config.kill_switch_file.exists(),
@@ -83,6 +98,10 @@ class NerveDesk:
 
     def report(self) -> str:
         return self.reporter.brief()
+
+    def reconcile(self) -> list[dict[str, object]]:
+        """Return intents whose network outcome still needs reconciliation."""
+        return self.store.unknown_intents()
 
     def stop(self) -> None:
         self.monitor.kill_switch_file.parent.mkdir(parents=True, exist_ok=True)

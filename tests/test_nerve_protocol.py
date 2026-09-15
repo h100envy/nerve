@@ -83,3 +83,22 @@ def test_paper_desk_runs_without_rpc(tmp_path) -> None:
     assert [item.verdict for item in result] == [Verdict.FILL, Verdict.REJECT]
     assert "fill=1" in desk.report()
     desk.close()
+
+
+def test_paper_restart_replay_cannot_create_second_fill(tmp_path) -> None:
+    config = NerveConfig(
+        execution_mode=ExecutionMode.PAPER, db_path=tmp_path / "desk.db",
+        kill_switch_file=tmp_path / "KILL_SWITCH",
+    )
+    desk = NerveDesk(config)
+    first = desk.run_scan_cycle()[0]
+    second = desk.run_scan_cycle()[0]
+    assert first.id == second.id
+    assert second.verdict is Verdict.ALERT
+    assert desk.store.open_position_count() == 1
+    desk.close()
+
+
+def test_live_config_fails_closed_without_wallet() -> None:
+    with pytest.raises(ValueError, match="LIVE mode requires"):
+        NerveConfig(execution_mode=ExecutionMode.LIVE, live_trading_enabled=True)

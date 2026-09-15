@@ -45,6 +45,7 @@ class Spine:
             # and side-effecting nodes after that point.
             if index > 0:
                 impulse = check_reflexes(impulse, self.context_fn(), self.reflexes)
+                self.store.save(impulse)
                 self.store.log_transition(impulse)
                 if impulse.verdict is Verdict.REJECT:
                     break
@@ -52,6 +53,9 @@ class Spine:
             if node is None:
                 continue
             impulse = node.process(impulse)
+            # SCANNER assigns the stable pool id; persist before the FK-backed
+            # transition row is written.
+            self.store.save(impulse)
             self.store.log_transition(impulse)
         self.store.save(impulse)
         return impulse

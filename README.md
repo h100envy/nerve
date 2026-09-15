@@ -51,6 +51,7 @@ src/nerve/
 ├── score.py        # deterministic 0–100 NERVE score
 ├── sources.py      # PoolSource protocol and paper source
 ├── adapters.py     # Robinhood Chain Uniswap V3 read adapter
+├── rpc.py          # read retries, with exactly-once broadcast semantics
 ├── execution.py    # paper adapter and one-send EVM signer
 ├── store.py        # SQLite audit trail and idempotent intents
 ├── agents/         # scanner, analyst, risk, executor, monitor, reporter
@@ -93,6 +94,9 @@ rate-limited and intended for development.
 The source returns `PoolObservation`. Holder concentration, volume, mint and LP
 lock are enrichment fields, so an indexer must provide them. Missing enrichment
 is represented as an unsafe value and fails closed; it is never guessed.
+Set `ENRICHMENT_PATH` to a JSON object keyed by token address. `ALLOW_ANY_TOKEN`
+enables bounded `PoolCreated` log discovery; keep it false until enrichment,
+contract review and a small live allowlist are in place.
 
 ## GPT-6 Astra boundary
 
@@ -111,6 +115,7 @@ The built-in reflex set runs before ANALYST, RISK and EXECUTOR:
 - gas cap;
 - minimum liquidity and maximum quote slippage;
 - duplicate token position.
+- minimum deterministic NERVE score.
 
 The first fired reflex writes a `risk:reject` transition and the spine returns.
 This is the expensive-call and side-effect boundary.
@@ -152,8 +157,10 @@ LIVE_TRADING_ENABLED=false
 OPENAI_MODEL=gpt-6-astra
 ```
 
-Start with `paper-scan`, then run `chain-check` against a testnet or read-only
-provider. Move to a staffed, minimum-size live test only after checking token
+Start with `paper-scan`, then run `chain-check` and `preflight` against a
+testnet or read-only provider. `preflight` checks chain ID, block/gas and
+bytecode at the configured WETH, factory, quoter and router. Move to a staffed,
+minimum-size live test only after checking token
 bytecode, pool depth, buy and sell routes, gas reserve, approval state, receipt
 status and post-trade balances. The repository is an auditable starting point,
 not a performance claim.

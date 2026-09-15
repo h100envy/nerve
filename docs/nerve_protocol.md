@@ -130,7 +130,8 @@ factory pools, `liquidity()` and `slot0()` for a reviewed token-address
 allowlist. It calculates active-range WETH depth and does not pretend that a
 pool contract contains holder concentration or 24-hour volume. Those fields
 come from an indexer enrichment feed. Missing enrichment is unsafe and fails
-closed.
+closed. `ALLOW_ANY_TOKEN=true` switches the adapter to a bounded
+`PoolCreated`-log window, still requiring enrichment before a signal can pass.
 
 **ANALYST** receives normalized metrics only. It uses the OpenAI Responses API
 with a strict JSON Schema: `PASS | REJECT`, reason, thesis, confidence and risk
@@ -208,7 +209,7 @@ with a small balance and leave a native ETH reserve for exits and approvals.
 ## Runbook
 
 1. Run `paper-scan` and inspect every `Impulse.path` in SQLite.
-2. Run `chain-check` against testnet or a read-only production provider.
+2. Run `chain-check` and `preflight` against testnet or a read-only production provider.
 3. Enrich the allowlist with holder, LP-lock, mint and volume data from a
    trusted indexer. Do not infer these values from a token symbol.
 4. Test buy and sell quotes and approval state with the smallest amount.

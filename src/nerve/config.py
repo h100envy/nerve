@@ -35,8 +35,11 @@ class NerveConfig(BaseModel):
     quoter_address: str = "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7"
     router_address: str = "0xcaf681a66d020601342297493863e78c959e5cb2"
     token_allowlist: tuple[str, ...] = ()
+    allow_any_token: bool = False
     pool_fees: tuple[int, ...] = (100, 500, 3000, 10_000)
     weth_usd: Decimal = Decimal("0")
+    scan_window_blocks: int = 600
+    enrichment_path: Path | None = None
 
     risk_per_trade_pct: Decimal = Decimal("0.01")
     max_position_pct: Decimal = Decimal("0.05")
@@ -50,6 +53,7 @@ class NerveConfig(BaseModel):
     order_timeout_sec: int = 90
     deadline_sec: int = 45
     scan_interval_sec: int = 30
+    report_interval_sec: int = 300
 
     openai_api_key: str = Field(default="", repr=False)
     openai_model: str = "gpt-6-astra"
@@ -72,7 +76,7 @@ class NerveConfig(BaseModel):
             raise ValueError("fraction must be between 0 and 1")
         return value
 
-    @field_validator("max_positions", "confirmations", "order_timeout_sec", "deadline_sec", "scan_interval_sec")
+    @field_validator("max_positions", "confirmations", "order_timeout_sec", "deadline_sec", "scan_interval_sec", "report_interval_sec", "scan_window_blocks")
     @classmethod
     def positive_int(cls, value: int) -> int:
         if value <= 0:
@@ -103,8 +107,11 @@ class NerveConfig(BaseModel):
                 raise ValueError("LIVE mode requires LIVE_TRADING_ENABLED=true")
             if not self.private_key or not self.wallet_address:
                 raise ValueError("LIVE mode requires PRIVATE_KEY and WALLET_ADDRESS")
+            if self.weth_usd <= 0:
+                raise ValueError("LIVE mode requires a positive WETH_USD reference")
             if not self.token_allowlist:
-                raise ValueError("LIVE mode requires explicit TOKEN_ALLOWLIST")
+                if not self.allow_any_token:
+                    raise ValueError("LIVE mode requires TOKEN_ALLOWLIST or ALLOW_ANY_TOKEN=true")
         return self
 
     @classmethod
@@ -123,7 +130,10 @@ class NerveConfig(BaseModel):
             factory_address=os.getenv("UNISWAP_V3_FACTORY", cls.model_fields["factory_address"].default),
             quoter_address=os.getenv("UNISWAP_V3_QUOTER", cls.model_fields["quoter_address"].default),
             router_address=os.getenv("UNISWAP_V3_ROUTER", cls.model_fields["router_address"].default),
-            token_allowlist=tokens, pool_fees=fees, weth_usd=Decimal(os.getenv("WETH_USD", "0")),
+            token_allowlist=tokens, allow_any_token=os.getenv("ALLOW_ANY_TOKEN", "false").lower() == "true",
+            pool_fees=fees, weth_usd=Decimal(os.getenv("WETH_USD", "0")),
+            scan_window_blocks=int(os.getenv("SCAN_WINDOW_BLOCKS", "600")),
+            enrichment_path=Path(os.environ["ENRICHMENT_PATH"]) if os.getenv("ENRICHMENT_PATH") else None,
             risk_per_trade_pct=Decimal(os.getenv("RISK_PER_TRADE_PCT", "0.01")),
             max_position_pct=Decimal(os.getenv("MAX_POSITION_PCT", "0.05")),
             max_positions=int(os.getenv("MAX_POSITIONS", "5")), daily_loss_limit_pct=Decimal(os.getenv("DAILY_LOSS_LIMIT_PCT", "0.03")),
@@ -131,6 +141,7 @@ class NerveConfig(BaseModel):
             max_slippage_bps=int(os.getenv("MAX_SLIPPAGE_BPS", "100")), min_score=int(os.getenv("MIN_SCORE", "55")),
             min_confidence=Decimal(os.getenv("MIN_CONFIDENCE", "0.70")), order_timeout_sec=int(os.getenv("ORDER_TIMEOUT_SEC", "90")),
             deadline_sec=int(os.getenv("DEADLINE_SEC", "45")), scan_interval_sec=int(os.getenv("SCAN_INTERVAL_SEC", "30")),
+            report_interval_sec=int(os.getenv("REPORT_INTERVAL_SEC", "300")),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-6-astra"), openai_reasoning_effort=os.getenv("OPENAI_REASONING_EFFORT", "low"),
             db_path=Path(os.getenv("DB_PATH", "data/nerve.db")), log_path=Path(os.getenv("LOG_PATH", "data/nerve.jsonl")),
