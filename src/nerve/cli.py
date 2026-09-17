@@ -11,7 +11,7 @@ from .desk import NerveDesk
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="NERVE Protocol trading desk")
-    parser.add_argument("command", choices=("paper-scan", "chain-check", "preflight", "report", "kill", "run"))
+    parser.add_argument("command", choices=("paper-scan", "chain-check", "preflight", "reconcile", "report", "kill", "run"))
     args = parser.parse_args(argv)
     config = NerveConfig.from_env()
     if args.command == "paper-scan":
@@ -40,6 +40,8 @@ def main(argv: list[str] | None = None) -> int:
             result["preflight_ok"] = all(bytecode.values())
         print(json.dumps(result))
         return 0 if connected and chain_id == config.chain_id and result.get("preflight_ok", True) else 1
+    if args.command == "reconcile":
+        return _reconcile(config)
     desk = NerveDesk(config)
     try:
         if args.command == "paper-scan":
@@ -66,6 +68,26 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         desk.close()
     return 0
+
+
+def _reconcile(config: NerveConfig) -> int:
+    """Read-only: opens the store and an RPC reader, never the signer or the desk."""
+    from .chainread import JsonRpcReader
+    from .reconcile import RpcReconcileChain, reconcile, render, report_divergences
+    from .store import NerveStore
+
+    config.ensure_runtime_dirs()
+    store = NerveStore(config.db_path)
+    try:
+        rows = reconcile(store, lambda: RpcReconcileChain(JsonRpcReader(config.rpc_url)), config.wallet_address)
+    except Exception as exc:
+        print(f"reconcile failed: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        store.close()
+    print(render(rows))
+    report_divergences(rows)
+    return 1 if any(row.divergent for row in rows) else 0
 
 
 if __name__ == "__main__":

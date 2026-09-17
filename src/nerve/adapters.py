@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -10,7 +9,7 @@ from web3 import Web3
 
 from .models import ChainName, PoolObservation
 from .rpc import RetryingHTTPProvider
-from .sources import PoolSource
+from .sources import PoolSource, load_enrichment
 
 FACTORY_ABI = [{"name": "getPool", "outputs": [{"type": "address"}], "stateMutability": "view", "type": "function", "inputs": [{"type": "address"}, {"type": "address"}, {"type": "uint24"}]}]
 FACTORY_EVENTS_ABI = [{"anonymous": False, "inputs": [
@@ -111,10 +110,7 @@ class RobinhoodChainPoolSource(PoolSource):
 
     def _load_enrichment(self) -> None:
         if self.enrichment_path and self.enrichment_path.exists():
-            payload = json.loads(self.enrichment_path.read_text())
-            if not isinstance(payload, dict):
-                raise ValueError("ENRICHMENT_PATH must contain an object keyed by token address")
-            self.enrichment = {str(key).lower(): value for key, value in payload.items() if isinstance(value, dict)}
+            self.enrichment = load_enrichment(self.enrichment_path)
 
     def _route_metrics(self, token: str, fee: int, decimals: int) -> tuple[bool, bool, int]:
         probe_in = 10**15  # 0.001 WETH

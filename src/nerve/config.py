@@ -40,6 +40,15 @@ class NerveConfig(BaseModel):
     weth_usd: Decimal = Decimal("0")
     scan_window_blocks: int = 600
     enrichment_path: Path | None = None
+    position_manager_address: str = ""
+
+    # SENTINEL: round-trip simulation, measured tax and on-chain enrichment.
+    max_buy_tax_pct: Decimal = Decimal("5")
+    max_sell_tax_pct: Decimal = Decimal("5")
+    sentinel_max_age_blocks: int = 30
+    sentinel_simulate_size_usd: Decimal = Decimal("500")
+    lp_locker_allowlist: tuple[str, ...] = ()
+    indexer_url: str = ""
 
     risk_per_trade_pct: Decimal = Decimal("0.01")
     max_position_pct: Decimal = Decimal("0.05")
@@ -76,7 +85,21 @@ class NerveConfig(BaseModel):
             raise ValueError("fraction must be between 0 and 1")
         return value
 
-    @field_validator("max_positions", "confirmations", "order_timeout_sec", "deadline_sec", "scan_interval_sec", "report_interval_sec", "scan_window_blocks")
+    @field_validator("max_buy_tax_pct", "max_sell_tax_pct")
+    @classmethod
+    def percent(cls, value: Decimal) -> Decimal:
+        if not Decimal("0") <= value <= Decimal("100"):
+            raise ValueError("tax cap must be between 0 and 100 percent")
+        return value
+
+    @field_validator("sentinel_simulate_size_usd")
+    @classmethod
+    def positive_decimal(cls, value: Decimal) -> Decimal:
+        if value <= 0:
+            raise ValueError("SENTINEL_SIMULATE_SIZE_USD must be positive")
+        return value
+
+    @field_validator("max_positions", "confirmations", "order_timeout_sec", "deadline_sec", "scan_interval_sec", "report_interval_sec", "scan_window_blocks", "sentinel_max_age_blocks")
     @classmethod
     def positive_int(cls, value: int) -> int:
         if value <= 0:
@@ -90,7 +113,7 @@ class NerveConfig(BaseModel):
             raise ValueError("setting cannot be negative")
         return value
 
-    @field_validator("token_allowlist")
+    @field_validator("token_allowlist", "lp_locker_allowlist")
     @classmethod
     def evm_addresses(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         for address in value:
@@ -118,6 +141,7 @@ class NerveConfig(BaseModel):
     def from_env(cls) -> NerveConfig:
         load_dotenv()
         tokens = tuple(x.strip() for x in os.getenv("TOKEN_ALLOWLIST", "").split(",") if x.strip())
+        lockers = tuple(x.strip() for x in os.getenv("LP_LOCKER_ALLOWLIST", "").split(",") if x.strip())
         fees = tuple(int(x.strip()) for x in os.getenv("POOL_FEES", "100,500,3000,10000").split(","))
         return cls(
             chain=ChainName(os.getenv("CHAIN", "robinhood").lower()),
@@ -134,6 +158,12 @@ class NerveConfig(BaseModel):
             pool_fees=fees, weth_usd=Decimal(os.getenv("WETH_USD", "0")),
             scan_window_blocks=int(os.getenv("SCAN_WINDOW_BLOCKS", "600")),
             enrichment_path=Path(os.environ["ENRICHMENT_PATH"]) if os.getenv("ENRICHMENT_PATH") else None,
+            position_manager_address=os.getenv("UNISWAP_V3_POSITION_MANAGER", ""),
+            max_buy_tax_pct=Decimal(os.getenv("MAX_BUY_TAX_PCT", "5")),
+            max_sell_tax_pct=Decimal(os.getenv("MAX_SELL_TAX_PCT", "5")),
+            sentinel_max_age_blocks=int(os.getenv("SENTINEL_MAX_AGE_BLOCKS", "30")),
+            sentinel_simulate_size_usd=Decimal(os.getenv("SENTINEL_SIMULATE_SIZE_USD", "500")),
+            lp_locker_allowlist=lockers, indexer_url=os.getenv("INDEXER_URL", ""),
             risk_per_trade_pct=Decimal(os.getenv("RISK_PER_TRADE_PCT", "0.01")),
             max_position_pct=Decimal(os.getenv("MAX_POSITION_PCT", "0.05")),
             max_positions=int(os.getenv("MAX_POSITIONS", "5")), daily_loss_limit_pct=Decimal(os.getenv("DAILY_LOSS_LIMIT_PCT", "0.03")),

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
+from typing import Any
 
 from .agents.analyst import AnalystNode
 from .agents.executor import ExecutionAdapter, ExecutorNode
@@ -17,7 +19,7 @@ from .store import NerveStore
 
 
 class NerveDesk:
-    """Six nodes, one spine, and no mutable trading state in node memory."""
+    """Seven nodes, one spine, and no mutable trading state in node memory."""
 
     def __init__(self, config: NerveConfig, source: PoolSource | None = None) -> None:
         self.config = config
@@ -41,6 +43,27 @@ class NerveDesk:
             else:
                 raise ValueError("provide a PoolSource adapter for Base or Solana")
         self.scanner = ScannerNode(source)
+        self.sentinel: NerveNode
+        self.head_block: Callable[[], int | None]
+        if config.execution_mode is ExecutionMode.PAPER:
+            from .paper import PaperSentinel
+
+            paper_sentinel = PaperSentinel()
+            self.sentinel, self.head_block = paper_sentinel, paper_sentinel.head_block
+        else:
+            from .agents.sentinel import SentinelNode, SentinelSettings
+            from .chainread import JsonRpcReader
+
+            live_sentinel = SentinelNode(JsonRpcReader(config.rpc_url), SentinelSettings(
+                wallet_address=config.wallet_address, weth_address=config.weth_address,
+                router_address=config.router_address, quoter_address=config.quoter_address,
+                factory_address=config.factory_address, weth_usd=config.weth_usd,
+                simulate_size_usd=config.sentinel_simulate_size_usd, max_age_blocks=config.sentinel_max_age_blocks,
+                position_manager_address=config.position_manager_address,
+                lp_locker_allowlist=config.lp_locker_allowlist, indexer_url=config.indexer_url,
+                enrichment_path=config.enrichment_path,
+            ))
+            self.sentinel, self.head_block = live_sentinel, live_sentinel.head_block
         self.analyst = AnalystNode(api_key=config.openai_api_key, model=config.openai_model)
         self.risk = RiskNode(config.kill_switch_file, config.risk_per_trade_pct, config.max_position_pct)
         if config.execution_mode is ExecutionMode.PAPER:
@@ -60,7 +83,7 @@ class NerveDesk:
         self.executor = ExecutorNode(execution, self.store)
         self.monitor = MonitorNode(config.kill_switch_file)
         self.reporter = ReporterNode(self.store)
-        self.nodes: list[NerveNode] = [self.scanner, self.analyst, self.risk, self.executor]
+        self.nodes: list[NerveNode] = [self.scanner, self.sentinel, self.analyst, self.risk, self.executor]
         self.spine = Spine(self.nodes, self.store, self.context)
 
     def context(self) -> PortfolioContext:
@@ -76,6 +99,7 @@ class NerveDesk:
                 daily_loss_limit_pct=self.config.daily_loss_limit_pct, max_gas_gwei=self.config.max_gas_gwei,
                 min_liquidity_usd=self.config.min_liquidity_usd, max_slippage_bps=self.config.max_slippage_bps,
                 max_positions=self.config.max_positions, min_score=self.config.min_score,
+                **self._sentinel_limits(),
             )
         return PortfolioContext(
             equity_usd=Decimal("100000"), daily_pnl_pct=Decimal("0"), gas_gwei=Decimal("0"),
@@ -83,7 +107,14 @@ class NerveDesk:
             daily_loss_limit_pct=self.config.daily_loss_limit_pct, max_gas_gwei=self.config.max_gas_gwei,
             min_liquidity_usd=self.config.min_liquidity_usd, max_slippage_bps=self.config.max_slippage_bps,
             max_positions=self.config.max_positions, min_score=self.config.min_score,
+            **self._sentinel_limits(),
         )
+
+    def _sentinel_limits(self) -> dict[str, Any]:
+        return {
+            "max_buy_tax_pct": self.config.max_buy_tax_pct, "max_sell_tax_pct": self.config.max_sell_tax_pct,
+            "sentinel_max_age_blocks": self.config.sentinel_max_age_blocks, "head_block": self.head_block(),
+        }
 
     def run_scan_cycle(self) -> list[Impulse]:
         result: list[Impulse] = []

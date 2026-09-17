@@ -19,7 +19,9 @@ class Spine:
         reflexes: tuple[Reflex, ...] | None = None,
     ) -> None:
         self.nodes = {node.node_type: node for node in nodes}
-        self.route = [NodeType.SCANNER, NodeType.ANALYST, NodeType.RISK, NodeType.EXECUTOR]
+        # SENTINEL is free and deterministic, so it runs before the paid model
+        # call and long before any signer.
+        self.route = [NodeType.SCANNER, NodeType.SENTINEL, NodeType.ANALYST, NodeType.RISK, NodeType.EXECUTOR]
         self.store = store
         self.context_fn = context_fn
         self.reflexes = reflexes or default_reflexes()
@@ -44,7 +46,7 @@ class Spine:
             # Scanner must first populate metrics; reflexes guard all expensive
             # and side-effecting nodes after that point.
             if index > 0:
-                impulse = check_reflexes(impulse, self.context_fn(), self.reflexes)
+                impulse = check_reflexes(impulse, self.context_fn(), self.reflexes, before=node_type)
                 self.store.save(impulse)
                 self.store.log_transition(impulse)
                 if impulse.verdict is Verdict.REJECT:

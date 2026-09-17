@@ -37,7 +37,8 @@ class AnalystNode(NerveNode):
             verdict = self._call_model(impulse)
         impulse.thesis = verdict.thesis[:600]
         impulse.confidence = verdict.confidence
-        impulse.risk_flags = verdict.risk_flags
+        # SENTINEL's bytecode flags are facts; the model may add flags, never erase them.
+        impulse.risk_flags = list(dict.fromkeys([*impulse.risk_flags, *verdict.risk_flags]))
         impulse.score = max(0, min(100, impulse.score + int(verdict.confidence * 15)))
         if verdict.verdict.upper() != "PASS":
             return impulse.advance(NodeType.ANALYST, Verdict.REJECT, verdict.reason)
@@ -49,7 +50,10 @@ class AnalystNode(NerveNode):
                  "volume_24h_usd": str(impulse.volume_24h_usd), "top10_pct": str(impulse.top10_pct),
                  "slippage_bps": impulse.slippage_bps, "pool_age_hours": str(impulse.pool_age_hours),
                  "mint_renounced": impulse.mint_renounced, "lp_locked": impulse.lp_locked,
-                 "buy_tax_pct": str(impulse.buy_tax_pct), "sell_tax_pct": str(impulse.sell_tax_pct)}
+                 "buy_tax_pct": None if impulse.buy_tax_pct is None else str(impulse.buy_tax_pct),
+                 "sell_tax_pct": None if impulse.sell_tax_pct is None else str(impulse.sell_tax_pct),
+                 "buy_route": impulse.buy_route, "sell_route": impulse.sell_route,
+                 "risk_flags": list(impulse.risk_flags)}
         if self._brain is not None:
             result = self._brain(facts)
             return AnalystVerdict.model_validate(result)

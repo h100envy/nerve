@@ -15,6 +15,7 @@ def utc_now() -> datetime:
 
 class NodeType(StrEnum):
     SCANNER = "scanner"
+    SENTINEL = "sentinel"
     ANALYST = "analyst"
     RISK = "risk"
     EXECUTOR = "executor"
@@ -155,3 +156,8 @@ class PortfolioContext(BaseModel):
     max_slippage_bps: int = 100
     max_positions: int = 5
     min_score: int = 55
+    max_buy_tax_pct: Decimal = Decimal("5")
+    max_sell_tax_pct: Decimal = Decimal("5")
+    sentinel_max_age_blocks: int = 30
+    # Chain head when the context was taken. None means freshness is unprovable.
+    head_block: int | None = None

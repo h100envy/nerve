@@ -90,8 +90,9 @@ class NerveStore:
         payload = json.loads(row["payload"])
         payload.update(fields)
         self.conn.execute(
-            "UPDATE intents SET status=?,tx_hash=COALESCE(?,tx_hash),payload=?,updated_at=? WHERE client_id=?",
-            (status, fields.get("tx_hash"), json.dumps(payload, sort_keys=True), datetime.now(UTC).isoformat(), client_id),
+            "UPDATE intents SET status=?,tx_hash=COALESCE(?,tx_hash),nonce=COALESCE(?,nonce),payload=?,updated_at=? WHERE client_id=?",
+            (status, fields.get("tx_hash"), fields.get("nonce"), json.dumps(payload, sort_keys=True),
+             datetime.now(UTC).isoformat(), client_id),
         )
         self.conn.commit()
 
@@ -105,6 +106,14 @@ class NerveStore:
 
     def unknown_intents(self) -> list[dict[str, Any]]:
         rows = self.conn.execute("SELECT * FROM intents WHERE status IN ('prepared','unknown','submitted')").fetchall()
+        return [dict(row) for row in rows]
+
+    def intents_with_status(self, status: str) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM intents WHERE status=? ORDER BY updated_at", (status,)).fetchall()
+        return [{**dict(row), "payload": json.loads(row["payload"])} for row in rows]
+
+    def open_positions(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM positions WHERE status='open' ORDER BY opened_at").fetchall()
         return [dict(row) for row in rows]
 
     def record_position(self, impulse: Impulse) -> None:

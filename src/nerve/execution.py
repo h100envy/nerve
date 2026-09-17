@@ -12,7 +12,11 @@ from .rpc import RetryingHTTPProvider
 
 
 class ExecutionError(RuntimeError):
-    pass
+    """Carries the nonce and locally computed hash of an uncertain send for reconcile."""
+
+    def __init__(self, message: str, *, nonce: int | None = None, tx_hash: str = "", leg: str = "") -> None:
+        super().__init__(message)
+        self.nonce, self.tx_hash, self.leg = nonce, tx_hash, leg
 
 
 class PaperExecution:
@@ -86,12 +90,17 @@ class EvmExecution:
         self.router = self.w3.eth.contract(address=Web3.to_checksum_address(config.router_address), abi=ROUTER_ABI)
         self.quoter = self.w3.eth.contract(address=Web3.to_checksum_address(config.quoter_address), abi=QUOTER_ABI)
 
-    def _send_once(self, tx: dict[str, Any]) -> str:
+    def _send_once(self, tx: dict[str, Any], leg: str) -> str:
         from eth_account import Account
 
         signed = Account.sign_transaction(tx, self.config.private_key)
+        local_hash = "0x" + bytes(signed.hash).hex()
         # Never retry this call: a provider timeout does not prove the tx was absent.
-        return self.w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+        try:
+            return self.w3.eth.send_raw_transaction(signed.raw_transaction).hex()
+        except Exception as exc:
+            raise ExecutionError(f"{leg} send uncertain; reconcile nonce {tx['nonce']}, never resend",
+                                 nonce=int(tx["nonce"]), tx_hash=local_hash, leg=leg) from exc
 
     def wallet_snapshot(self) -> tuple[float, float, float]:
         """Return native ETH, WETH and gas price without mutating chain state."""
@@ -131,13 +140,14 @@ class EvmExecution:
                 "gas": 90_000, "maxFeePerGas": gas_price,
                 "maxPriorityFeePerGas": min(gas_price, self.w3.to_wei(0.01, "gwei")),
             })
-            approval_hash = self._send_once(dict(approval))
+            approval_hash = self._send_once(dict(approval), "approval")
             try:
                 approval_receipt = self.w3.eth.wait_for_transaction_receipt(approval_hash, timeout=90)  # type: ignore[arg-type]
             except TimeExhausted as exc:
-                raise ExecutionError(f"approval timeout for {approval_hash}; reconcile by nonce") from exc
+                raise ExecutionError(f"approval timeout for {approval_hash}; reconcile by nonce",
+                                     nonce=nonce, tx_hash=approval_hash, leg="approval") from exc
             if int(approval_receipt["status"]) != 1:
-                raise ExecutionError(f"approval reverted: {approval_hash}")
+                raise ExecutionError(f"approval reverted: {approval_hash}", nonce=nonce, tx_hash=approval_hash, leg="approval")
             nonce += 1
         params = (Web3.to_checksum_address(self.config.weth_address), token_out, fee, recipient, amount_in, amount_min, 0)
         tx = self.router.functions.exactInputSingle(params).build_transaction({  # type: ignore[arg-type]
@@ -145,14 +155,15 @@ class EvmExecution:
             "gas": self.config.gas_limit, "maxFeePerGas": gas_price,
             "maxPriorityFeePerGas": min(gas_price, self.w3.to_wei(0.01, "gwei")),
         })
-        tx_hash = self._send_once(dict(tx))
+        tx_hash = self._send_once(dict(tx), "swap")
         try:
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=90)  # type: ignore[arg-type]
         except TimeExhausted as exc:
-            raise ExecutionError(f"receipt timeout for {tx_hash}; reconcile by nonce") from exc
+            raise ExecutionError(f"receipt timeout for {tx_hash}; reconcile by nonce",
+                                 nonce=nonce, tx_hash=tx_hash, leg="swap") from exc
         target = int(receipt["blockNumber"]) + self.config.confirmations
         while int(self.w3.eth.block_number) < target:
             time.sleep(0.1)
         if int(receipt["status"]) != 1:
-            raise ExecutionError(f"swap reverted: {tx_hash}")
+            raise ExecutionError(f"swap reverted: {tx_hash}", nonce=nonce, tx_hash=tx_hash, leg="swap")
         return tx_hash, nonce

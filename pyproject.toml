@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nerve-protocol"
-version = "0.2.0"
-description = "NERVE Protocol: six typed AI agents and deterministic reflexes for memecoin trading"
+version = "0.3.0"
+description = "NERVE Protocol: seven typed AI agents and deterministic reflexes for memecoin trading. Simulates the exit before it buys."
 requires-python = ">=3.11"
 dependencies = [
   "httpx>=0.27,<1",

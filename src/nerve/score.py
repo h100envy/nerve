@@ -7,6 +7,8 @@ from .models import Impulse
 
 def nerve_score(impulse: Impulse) -> int:
     """Deterministic 0–100 pool score. Same facts always produce same score."""
+    if impulse.sell_route is False:
+        return 0  # you cannot exit
     score = 50
     if impulse.liquidity_usd >= Decimal("500000"):
         score += 15
@@ -30,5 +32,12 @@ def nerve_score(impulse: Impulse) -> int:
         score += 5
     if impulse.volume_1h_usd > impulse.liquidity_usd * Decimal("0.5"):
         score += 10
+    taxes = (impulse.buy_tax_pct, impulse.sell_tax_pct)
+    if any(tax is not None and tax > Decimal("10") for tax in taxes):
+        score -= 20
+    elif impulse.buy_tax_pct == 0 and impulse.sell_tax_pct == 0 and impulse.buy_route and impulse.sell_route:
+        score += 8
+    hostile = {flag for flag in impulse.risk_flags if flag.startswith("bytecode:")}
+    score -= min(15, 5 * len(hostile))
     score += int(impulse.confidence * Decimal("15"))
     return max(0, min(100, score))

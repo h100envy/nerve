@@ -1,1 +1,1 @@
-"""NERVE's six specialized nodes."""
+"""NERVE's seven specialized nodes."""

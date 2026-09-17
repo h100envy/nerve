@@ -32,9 +32,12 @@ class ExecutorNode(NerveNode):
         try:
             tx_hash, nonce = self.adapter.execute(impulse)
         except Exception as exc:
-            self.store.update_intent(client_id, "unknown", error=str(exc))
+            # Keep whatever the adapter knows about the uncertain send so
+            # `nerve reconcile` can resolve it by nonce. Nothing is resent.
+            self.store.update_intent(client_id, "unknown", error=str(exc), nonce=getattr(exc, "nonce", None),
+                                     tx_hash=getattr(exc, "tx_hash", "") or None, leg=getattr(exc, "leg", ""))
             return impulse.advance(NodeType.EXECUTOR, Verdict.ALERT, "send uncertain; reconcile by nonce")
         impulse.tx_hash, impulse.nonce = tx_hash, nonce
-        self.store.update_intent(client_id, "filled", tx_hash=tx_hash)
+        self.store.update_intent(client_id, "filled", tx_hash=tx_hash, nonce=nonce)
         self.store.record_position(impulse)
         return impulse.advance(NodeType.EXECUTOR, Verdict.FILL, tx_hash)

@@ -1,12 +1,12 @@
-# NERVE Protocol: six AI agents for memecoin trading on Robinhood Chain
+# NERVE Protocol: seven AI agents for memecoin trading on Robinhood Chain
 
 Every day thousands of memecoins arrive on DEXes. A human can inspect one
 contract, its holders, pool depth, LP state and sell path in fifteen minutes.
 That does not scale to hundreds of pools per hour. NERVE turns that work into a
 typed, auditable pipeline.
 
-NERVE is a protocol rather than six unrelated scripts. A single `Impulse` message
-travels through six specialized nodes. Deterministic reflexes can stop it before
+NERVE is a protocol rather than seven unrelated scripts. A single `Impulse` message
+travels through seven specialized nodes. Deterministic reflexes can stop it before
 an expensive model call or a transaction. The spine controls order. The store
 keeps a replayable history.
 
@@ -104,8 +104,8 @@ not just a sentence in a prompt.
 
 ## Reflexes are faster than the cortex
 
-Reflexes run after SCANNER and before ANALYST, RISK and EXECUTOR. They are pure
-functions over an impulse and current portfolio context:
+Reflexes run after SCANNER and before SENTINEL, ANALYST, RISK and EXECUTOR. They
+are pure functions over an impulse and current portfolio context:
 
 ```python
 REFLEXES = (
@@ -113,6 +113,14 @@ REFLEXES = (
     Reflex("daily_loss", lambda _i, c: c.daily_pnl_pct <= -c.daily_loss_limit_pct,
            "daily loss limit breached"),
     Reflex("gas_cap", lambda _i, c: c.gas_gwei > c.max_gas_gwei, "gas above cap"),
+    Reflex("sell_simulation_failed", lambda i, _c: i.sell_route is False or sentinel_report(i).get("sell_leg") != "ok",
+           "sell leg reverted, was not simulated, or sell_route is false", AFTER_SENTINEL),
+    Reflex("buy_tax_above_cap", lambda i, c: i.buy_tax_pct is None or i.buy_tax_pct > c.max_buy_tax_pct,
+           "buy tax unmeasured or above cap", AFTER_SENTINEL),
+    Reflex("sell_tax_above_cap", lambda i, c: i.sell_tax_pct is None or i.sell_tax_pct > c.max_sell_tax_pct,
+           "sell tax unmeasured or above cap", AFTER_SENTINEL),
+    Reflex("stale_simulation", simulation_is_stale,
+           "simulation block missing or older than SENTINEL_MAX_AGE_BLOCKS", AFTER_SENTINEL),
     Reflex("low_liquidity", lambda i, c: i.liquidity_usd < c.min_liquidity_usd,
            "liquidity below minimum"),
     Reflex("high_slippage", lambda i, c: i.slippage_bps > c.max_slippage_bps,
@@ -121,9 +129,10 @@ REFLEXES = (
 ```
 
 The first match appends `risk:reject` and the spine stops. A kill switch thus
-avoids both the Astra call and a signing side effect.
+avoids both the Astra call and a signing side effect. The four SENTINEL reflexes
+guard only the nodes behind SENTINEL, and an unmeasured value (`None`) trips them.
 
-## The six nodes
+## The seven nodes
 
 **SCANNER** consumes `PoolSource.discover()`. The Robinhood adapter reads V3
 factory pools, `liquidity()` and `slot0()` for a reviewed token-address
@@ -133,7 +142,21 @@ come from an indexer enrichment feed. Missing enrichment is unsafe and fails
 closed. `ALLOW_ANY_TOKEN=true` switches the adapter to a bounded
 `PoolCreated`-log window, still requiring enrichment before a signal can pass.
 
-**ANALYST** receives normalized metrics only. It uses the OpenAI Responses API
+**SENTINEL** simulates the exit before the entry. At one pinned block it uses
+`eth_simulateV1` to buy from the real wallet at `SENTINEL_SIMULATE_SIZE_USD`,
+then sell exactly what the buy delivered in the next simulated block. A reverted
+sell is a honeypot and is rejected. It measures buy and sell tax as the Quoter's
+`amountOut` minus the observed balance delta, scans token bytecode for hostile
+selectors, and derives `mint_renounced`, `lp_locked` and `top10_pct` on-chain,
+falling back to `ENRICHMENT_PATH` only when a derivation is unavailable. It
+calls no model, spends no gas and never signs. It runs before ANALYST because a
+token that cannot be sold is not a question worth asking GPT. The Quoter alone
+is not enough: it runs pool math from its own address and cannot see transfer
+taxes, blacklists, whitelist gates, max-wallet limits, anti-bot cooldowns or a
+disabled trading flag. See [sentinel.md](sentinel.md).
+
+**ANALYST** receives normalized metrics only, including SENTINEL's measured
+taxes, routes and bytecode flags. It uses the OpenAI Responses API
 with a strict JSON Schema: `PASS | REJECT`, reason, thesis, confidence and risk
 flags. It never sees private keys, transaction bytes, gas limits or position
 size. If the API fails, the impulse is rejected.
@@ -162,13 +185,13 @@ can still lose money operationally.
 
 ```python
 class Spine:
-    route = [SCANNER, ANALYST, RISK, EXECUTOR]
+    route = [SCANNER, SENTINEL, ANALYST, RISK, EXECUTOR]
 
     def conduct(self, impulse: Impulse) -> Impulse:
         self.store.save(impulse)
         for index, node_type in enumerate(self.route):
             if index:
-                impulse = check_reflexes(impulse, self.context_fn(), self.reflexes)
+                impulse = check_reflexes(impulse, self.context_fn(), self.reflexes, before=node_type)
                 self.store.log_transition(impulse)
                 if impulse.verdict is Verdict.REJECT:
                     break
@@ -181,8 +204,10 @@ class Spine:
 ```
 
 Nodes do not own portfolio state. `NerveStore` persists impulses, transitions
-and client intents. On restart, `unknown_intents()` is a visible reconciliation
-queue. No process-memory flag can cause a second buy.
+and client intents. On restart, `nerve reconcile` resolves every `unknown` intent
+by nonce and receipt, checks open positions against the wallet's token balance,
+and exits non-zero on any divergence. It never sends a transaction. No
+process-memory flag can cause a second buy.
 
 ## Robinhood Chain live path
 
@@ -192,6 +217,7 @@ The first live path is:
 
 ```text
 allowlisted token → factory.getPool → quoteExactInputSingle
+  → SENTINEL round trip + tax + bytecode at one pinned block
   → deterministic reflexes → Astra thesis → deterministic risk
   → allowance/approve → amountOutMinimum → one signed swap
   → receipt + confirmations → store → monitor
@@ -200,7 +226,8 @@ allowlisted token → factory.getPool → quoteExactInputSingle
 The EVM adapter checks `chain_id`, derives the wallet from the key and verifies
 the wallet address matches configuration. It uses the `pending` nonce so an
 already submitted transaction cannot be overwritten. A short deadline and
-`amountOutMinimum` protect the AMM leg; they do not make a honeypot safe.
+`amountOutMinimum` protect the AMM leg; they do not make a honeypot safe. That is
+SENTINEL's job, and it happens before the model is asked.
 
 Never put the private key in source control, logs, an Impulse or a GPT prompt.
 Use a secret manager or a separate signer process. Use a dedicated hot wallet
@@ -212,9 +239,10 @@ with a small balance and leave a native ETH reserve for exits and approvals.
 2. Run `chain-check` and `preflight` against testnet or a read-only production provider.
 3. Enrich the allowlist with holder, LP-lock, mint and volume data from a
    trusted indexer. Do not infer these values from a token symbol.
-4. Test buy and sell quotes and approval state with the smallest amount.
+4. Confirm the provider supports `eth_simulateV1` and inspect SENTINEL's round
+   trip, measured taxes and `sources` for every allowlisted token.
 5. Enable live mode only with `LIVE_TRADING_ENABLED=true` and a staffed window.
-6. Reconcile unknown intents and receipts before restarting an executor.
+6. Run `nerve reconcile` before restarting an executor; restart only on exit 0.
 7. Test MONITOR after a restart; on-chain stops do not run when the process is
    down.
 
