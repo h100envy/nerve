@@ -1,0 +1,171 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#08080A; --ink:#FFFFFF; --dim:#8B8B93; --line:#1C1C21;
+    --pink:#FF2D6F; --lime:#CCFF33;
+    --scanner:#22C55E; --sentinel:#FF2D6F; --analyst:#F472B6; --risk:#CCFF33;
+    --executor:#22D3EE; --monitor:#A855F7; --reporter:#FBBF24;
+    --mono:"SF Mono",Menlo,Monaco,monospace;
+    --disp:"SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1200px;height:400px;overflow:hidden}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--disp);
+    -webkit-font-smoothing:antialiased;
+  }
+  .stage{position:relative;width:1200px;height:400px;display:flex;align-items:center}
+
+  /* faint dot grid */
+  .grid{
+    position:absolute;inset:0;
+    background-image:radial-gradient(circle,#FFFFFF0D 1px,transparent 1px);
+    background-size:26px 26px;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 35%,#000 92%,transparent);
+  }
+  /* top hairline */
+  .rule{position:absolute;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,var(--pink),var(--pink) 28%,var(--lime) 62%,#22D3EE 88%,transparent)}
+  /* glow behind the hero node */
+  .glow{position:absolute;width:420px;height:420px;left:640px;top:-40px;border-radius:50%;
+    background:radial-gradient(circle,#FF2D6F2E 0%,#FF2D6F10 42%,transparent 68%)}
+
+  /* ── left column ── */
+  .left{position:relative;width:536px;padding:0 0 0 64px}
+  .badge{display:inline-flex;align-items:center;gap:8px;
+    border:1.5px solid var(--pink);border-radius:999px;padding:7px 15px 7px 12px;
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;color:var(--pink)}
+  h1{font-size:46px;line-height:1.0;font-weight:900;letter-spacing:-.03em;margin:20px 0 0;white-space:nowrap}
+  h1 .p{color:var(--pink)}
+  .tag{font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--dim);margin-top:18px}
+  .tag b{color:#DEDEE4;font-weight:400}
+  .chips{display:flex;gap:8px;margin-top:22px}
+  .chip{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:#B8B8C0;
+    border:1px solid var(--line);background:#101014;border-radius:7px;padding:7px 11px}
+  .chip.k{color:#0A0A0B;background:var(--lime);border-color:var(--lime);font-weight:600}
+
+  /* ── right column: the chain ── */
+  .right{position:relative;flex:1;height:100%;padding-right:56px}
+  .chainwrap{position:absolute;top:143px;left:0;right:48px}
+  .chain{display:flex;align-items:flex-start;justify-content:space-between}
+  .node{width:78px;display:flex;flex-direction:column;align-items:center;gap:11px}
+  .disc{position:relative;width:46px;height:46px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    border:1.5px solid currentColor;background:#0E0E12}
+  .disc svg{width:22px;height:22px}
+  .name{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;color:#7E7E88;text-align:center}
+  .node.hero .disc{width:62px;height:62px;margin-top:-8px;border-width:2px;
+    background:radial-gradient(circle at 50% 35%,#2A0E1B,#0E0E12 70%);
+    box-shadow:0 0 0 7px #FF2D6F14,0 0 34px #FF2D6F55}
+  .node.hero .disc svg{width:29px;height:29px}
+  .node.hero .name{color:var(--pink);font-size:10.5px;letter-spacing:.14em}
+  /* connector behind the discs */
+  .wire{position:absolute;top:23px;left:39px;right:39px;height:1.5px;
+    background:repeating-linear-gradient(90deg,#2A2A32 0 7px,transparent 7px 13px)}
+  .newtag{position:absolute;top:-26px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#0A0A0B;
+    background:var(--pink);border-radius:4px;padding:3px 7px;white-space:nowrap}
+
+  .note{position:absolute;top:271px;left:0;right:48px;
+    display:flex;align-items:center;gap:10px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:#6E6E78}
+  .note .dash{flex:1;height:1px;background:linear-gradient(90deg,#24242B,transparent)}
+  .note .hot{color:var(--pink)}
+</style>
+
+<div class="stage">
+  <div class="grid"></div>
+  <div class="rule"></div>
+  <div class="glow"></div>
+
+  <div class="left">
+    <span class="badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 12h4l3-8 5 16 3-8h5"/>
+      </svg>NERVE PROTOCOL
+    </span>
+
+    <h1>SEVEN NODES.<br><span class="p">ONE IMPULSE.</span></h1>
+
+    <p class="tag">
+      Typed agents and deterministic reflexes<br>
+      for memecoin trading.<br>
+      <b>It simulates the exit before it buys.</b>
+    </p>
+
+    <div class="chips">
+      <span class="chip">Uniswap V3</span>
+      <span class="chip">GPT-6 Astra</span>
+      <span class="chip k">PAPER FIRST</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="chainwrap">
+      <div class="wire"></div>
+      <div class="chain">
+
+        <div class="node" style="color:var(--scanner)">
+          <div class="disc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                 stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="M15.6 15.6 20 20"/></svg>
+          </div><div class="name">SCANNER</div>
+        </div>
+
+        <div class="node hero" style="color:var(--sentinel)">
+          <div class="disc">
+            <span class="newtag">SIMULATES THE EXIT</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/><path d="M8.6 12.2l2.3 2.3 4.5-4.6"/></svg>
+          </div><div class="name">SENTINEL</div>
+        </div>
+
+        <div class="node" style="color:var(--analyst)">
+          <div class="disc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                 stroke-linecap="round"><path d="M5 19v-7M12 19V5M19 19v-5"/></svg>
+          </div><div class="name">ANALYST</div>
+        </div>
+
+        <div class="node" style="color:var(--risk)">
+          <div class="disc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                 stroke-linecap="round"><path d="M4 17a8 8 0 0 1 16 0"/><path d="M12 17l4.2-4.6"/></svg>
+          </div><div class="name">RISK</div>
+        </div>
+
+        <div class="node" style="color:var(--executor)">
+          <div class="disc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linejoin="round"><path d="M13 2.5 5.5 13.5H11l-1 8 8.5-11.5H13z"/></svg>
+          </div><div class="name">EXECUTOR</div>
+        </div>
+
+        <div class="node" style="color:var(--monitor)">
+          <div class="disc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                 stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-5.5 4 11L16 12h5"/></svg>
+          </div><div class="name">MONITOR</div>
+        </div>
+
+        <div class="node" style="color:var(--reporter)">
+          <div class="disc">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M9 8.5h6M9 12.5h6M9 16.5h4"/></svg>
+          </div><div class="name">REPORTER</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="hot">REFLEXES</span>
+      <span>fire between every node, before the model and long before a signer</span>
+      <span class="dash"></span>
+    </div>
+  </div>
+</div>
