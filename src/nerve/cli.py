@@ -11,7 +11,10 @@ from .desk import NerveDesk
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="NERVE Protocol trading desk")
-    parser.add_argument("command", choices=("paper-scan", "chain-check", "preflight", "reconcile", "report", "kill", "run"))
+    parser.add_argument(
+        "command",
+        choices=("paper-scan", "chain-check", "preflight", "reconcile", "report", "lab-report", "kill", "run"),
+    )
     args = parser.parse_args(argv)
     config = NerveConfig.from_env()
     if args.command == "paper-scan":
@@ -42,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if connected and chain_id == config.chain_id and result.get("preflight_ok", True) else 1
     if args.command == "reconcile":
         return _reconcile(config)
+    if args.command == "lab-report":
+        return _lab_report(config)
     desk = NerveDesk(config)
     try:
         if args.command == "paper-scan":
@@ -88,6 +93,20 @@ def _reconcile(config: NerveConfig) -> int:
     print(render(rows))
     report_divergences(rows)
     return 1 if any(row.divergent for row in rows) else 0
+
+
+def _lab_report(config: NerveConfig) -> int:
+    """Read the measurement store without constructing a signer or live desk."""
+    from .lab.report import build_lab_report
+    from .store import NerveStore
+
+    config.ensure_runtime_dirs()
+    store = NerveStore(config.db_path)
+    try:
+        print(json.dumps(build_lab_report(store), indent=2, ensure_ascii=False, sort_keys=True))
+    finally:
+        store.close()
+    return 0
 
 
 if __name__ == "__main__":

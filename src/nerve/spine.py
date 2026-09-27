@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from .lab.arms import ControlArm, LabRunner
+from .lab.models import ObservationSnapshot
+from .lab.outcomes import pending_outcomes
 from .models import Impulse, NodeType, PortfolioContext, Verdict
 from .protocol import NerveNode
 from .reflexes import Reflex, check_reflexes, default_reflexes
@@ -17,6 +20,7 @@ class Spine:
         store: NerveStore,
         context_fn: Callable[[], PortfolioContext],
         reflexes: tuple[Reflex, ...] | None = None,
+        lab_runner: LabRunner | None = None,
     ) -> None:
         self.nodes = {node.node_type: node for node in nodes}
         # SENTINEL is free and deterministic, so it runs before the paid model
@@ -25,6 +29,7 @@ class Spine:
         self.store = store
         self.context_fn = context_fn
         self.reflexes = reflexes or default_reflexes()
+        self.lab_runner = lab_runner or LabRunner(store, (ControlArm(),))
 
     def add_node(self, node: NerveNode, after: NodeType | None = None) -> None:
         self.nodes[node.node_type] = node
@@ -59,5 +64,20 @@ class Spine:
             # transition row is written.
             self.store.save(impulse)
             self.store.log_transition(impulse)
+            if node_type is NodeType.SENTINEL:
+                self._capture_measurement(impulse)
         self.store.save(impulse)
         return impulse
+
+    def _capture_measurement(self, impulse: Impulse) -> None:
+        """Observe the protocol without changing its verdict or execution path."""
+        try:
+            snapshot = ObservationSnapshot.capture(impulse)
+            self.store.record_observation_snapshot(snapshot)
+            for outcome in pending_outcomes(snapshot):
+                self.store.record_forward_outcome(outcome)
+            self.lab_runner.evaluate(snapshot)
+        except Exception:
+            # Phase 0 measurement is a sidecar. A telemetry/storage failure must
+            # never turn into permission to execute or block core reconciliation.
+            return

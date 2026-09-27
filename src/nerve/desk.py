@@ -11,6 +11,7 @@ from .agents.reporter import ReporterNode
 from .agents.risk import RiskNode
 from .agents.scanner import ScannerNode
 from .config import ExecutionMode, NerveConfig
+from .lab.report import build_lab_report
 from .models import ChainName, Impulse, PortfolioContext
 from .protocol import NerveNode
 from .sources import PoolSource, StaticPoolSource
@@ -129,6 +130,9 @@ class NerveDesk:
 
     def report(self) -> str:
         return self.reporter.brief()
+
+    def lab_report(self) -> dict[str, Any]:
+        return build_lab_report(self.store)
 
     def reconcile(self) -> list[dict[str, object]]:
         """Return intents whose network outcome still needs reconciliation."""
